@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Commute">
+<title>Commute Tracker</title>
+<style>
+  :root{
+    --ink:#1c2b2a;
+    --paper:#f4f1ea;
+    --panel:#ffffff;
+    --line:#e2ddd0;
+    --moss:#3c5a52;
+    --moss-dim:#7a938c;
+    --amber:#c96a3c;
+    --amber-dim:#e7c9b8;
+    --good:#3c7a5c;
+    --radius:18px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    background:var(--paper);
+    color:var(--ink);
+    padding-top:env(safe-area-inset-top);
+    padding-bottom:env(safe-area-inset-bottom);
+    -webkit-font-smoothing:antialiased;
+  }
+  .app{
+    max-width:480px;
+    margin:0 auto;
+    padding:20px 18px 100px;
+    min-height:100vh;
+  }
+  header{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    margin-bottom:18px;
+  }
+  header h1{
+    font-size:22px;
+    letter-spacing:-0.01em;
+    margin:0;
+    font-weight:700;
+  }
+  header .sub{
+    font-size:12px;
+    color:var(--moss-dim);
+    font-variant-numeric:tabular-nums;
+  }
+
+  /* Trip control card */
+  .trip-card{
+    background:var(--moss);
+    color:var(--paper);
+    border-radius:var(--radius);
+    padding:24px 20px;
+    position:relative;
+    overflow:hidden;
+    margin-bottom:16px;
+  }
+  .trip-card.idle{ background:var(--panel); color:var(--ink); border:1px solid var(--line); }
+  .trip-status-row{
+    display:flex; align-items:center; gap:8px; margin-bottom:14px;
+  }
+  .pulse-dot{
+    width:9px; height:9px; border-radius:50%;
+    background:var(--amber);
+    flex-shrink:0;
+  }
+  .trip-card.active .pulse-dot{
+    animation:pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%{ box-shadow:0 0 0 0 rgba(201,106,60,0.55); }
+    70%{ box-shadow:0 0 0 12px rgba(201,106,60,0); }
+    100%{ box-shadow:0 0 0 0 rgba(201,106,60,0); }
+  }
+  .trip-status-text{ font-size:13px; letter-spacing:0.02em; opacity:0.85; text-transform:uppercase; font-weight:600;}
+  .trip-metric{
+    font-size:48px;
+    font-weight:700;
+    letter-spacing:-0.02em;
+    font-variant-numeric:tabular-nums;
+    line-height:1;
+    margin-bottom:2px;
+  }
+  .trip-metric small{ font-size:20px; font-weight:600; opacity:0.75; margin-left:4px;}
+  .trip-sub{ font-size:13px; opacity:0.75; margin-bottom:18px; }
+  .trip-btn{
+    width:100%;
+    border:none;
+    border-radius:14px;
+    padding:15px;
+    font-size:16px;
+    font-weight:700;
+    cursor:pointer;
+    transition:transform 0.08s ease, opacity 0.15s ease;
+  }
+  .trip-btn:active{ transform:scale(0.98); }
+  .trip-btn.start{ background:var(--amber); color:#fff; }
+  .trip-btn.stop{ background:#fff; color:var(--moss); }
+  .trip-btn:disabled{ opacity:0.5; }
+
+  /* Stats row */
+  .stats-row{
+    display:grid;
+    grid-template-columns:1fr 1fr 1fr;
+    gap:10px;
+    margin-bottom:16px;
+  }
+  .stat-tile{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:14px 12px;
+  }
+  .stat-tile .label{ font-size:11px; text-transform:uppercase; letter-spacing:0.04em; color:var(--moss-dim); font-weight:600; margin-bottom:6px;}
+  .stat-tile .value{ font-size:19px; font-weight:700; font-variant-numeric:tabular-nums; }
+
+  /* Locations */
+  .section-title{
+    font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em;
+    color:var(--moss-dim); margin:22px 0 10px;
+  }
+  .loc-row{
+    display:flex; align-items:center; gap:12px;
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:13px 14px; margin-bottom:8px;
+  }
+  .loc-dot{ width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .loc-dot.work{ background:var(--amber); }
+  .loc-dot.home{ background:var(--moss); }
+  .loc-info{ flex:1; min-width:0; }
+  .loc-info .name{ font-size:14px; font-weight:600; }
+  .loc-info .coords{ font-size:11px; color:var(--moss-dim); font-variant-numeric:tabular-nums; }
+  .loc-set-btn{
+    border:1px solid var(--line); background:var(--paper); color:var(--ink);
+    font-size:12px; font-weight:600; padding:8px 12px; border-radius:10px; cursor:pointer;
+  }
+  .loc-set-btn:active{ opacity:0.7; }
+
+  /* History */
+  .day-group{ margin-bottom:14px; }
+  .day-label{ font-size:12px; font-weight:700; color:var(--moss-dim); margin-bottom:6px; padding-left:2px;}
+  .trip-row{
+    display:flex; align-items:center; gap:12px;
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:12px 14px; margin-bottom:6px;
+  }
+  .trip-icon{
+    width:34px; height:34px; border-radius:10px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:15px; flex-shrink:0;
+    background:var(--paper);
+  }
+  .trip-row-info{ flex:1; min-width:0; }
+  .trip-row-info .dir{ font-size:14px; font-weight:600; }
+  .trip-row-info .time{ font-size:11.5px; color:var(--moss-dim); }
+  .trip-row-dist{ text-align:right; }
+  .trip-row-dist .km{ font-size:15px; font-weight:700; font-variant-numeric:tabular-nums;}
+  .trip-row-dist .min{ font-size:11px; color:var(--moss-dim); }
+  .del-x{
+    background:none; border:none; color:var(--moss-dim); font-size:16px;
+    padding:4px 6px; cursor:pointer; line-height:1;
+  }
+
+  .empty{
+    text-align:center; padding:30px 10px; color:var(--moss-dim); font-size:13.5px;
+  }
+
+  .banner{
+    background:#fbe9e2; border:1px solid var(--amber-dim); color:#8a4326;
+    border-radius:12px; padding:12px 14px; font-size:12.5px; line-height:1.4;
+    margin-bottom:16px;
+  }
+
+  .unit-toggle{
+    display:flex; gap:6px; margin-bottom:16px;
+  }
+  .unit-toggle button{
+    flex:1; padding:9px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel); color:var(--moss-dim); font-size:12.5px; font-weight:600; cursor:pointer;
+  }
+  .unit-toggle button.active{
+    background:var(--moss); color:#fff; border-color:var(--moss);
+  }
+
+  ::selection{ background:var(--amber-dim); }
+
+  /* Session profile strip */
+  .profile-strip{
+    display:flex; align-items:center; gap:10px;
+    background:var(--panel); border:1px solid var(--line);
+    border-radius:14px; padding:11px 14px; margin-bottom:16px;
+  }
+  .profile-strip .avatar{
+    width:32px; height:32px; border-radius:50%;
+    background:var(--moss); color:#fff; font-weight:700; font-size:13px;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .profile-strip .info{ flex:1; min-width:0; }
+  .profile-strip .info .n{ font-size:13.5px; font-weight:600; }
+  .profile-strip .info .d{ font-size:11.5px; color:var(--moss-dim); }
+  .profile-strip .edit-btn{
+    border:none; background:var(--paper); color:var(--moss); font-size:12px;
+    font-weight:600; padding:7px 11px; border-radius:9px; cursor:pointer;
+  }
+
+  /* Session modal */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(28,43,42,0.55);
+    display:flex; align-items:flex-end; justify-content:center;
+    z-index:100; backdrop-filter:blur(2px);
+  }
+  .modal-overlay.hidden{ display:none; }
+  .modal{
+    width:100%; max-width:480px; background:var(--paper);
+    border-radius:22px 22px 0 0; padding:22px 20px calc(24px + env(safe-area-inset-bottom));
+    box-shadow:0 -8px 30px rgba(0,0,0,0.2);
+  }
+  .modal h2{ margin:0 0 4px; font-size:19px; letter-spacing:-0.01em; }
+  .modal .modal-sub{ font-size:13px; color:var(--moss-dim); margin:0 0 18px; line-height:1.4; }
+  .field{ margin-bottom:13px; }
+  .field label{
+    display:block; font-size:11.5px; font-weight:700; text-transform:uppercase;
+    letter-spacing:0.03em; color:var(--moss-dim); margin-bottom:6px;
+  }
+  .field input{
+    width:100%; padding:12px 13px; border-radius:11px; border:1px solid var(--line);
+    background:var(--panel); font-size:15px; color:var(--ink); font-family:inherit;
+  }
+  .field input:focus{ outline:2px solid var(--moss); outline-offset:1px; }
+  .modal-actions{ display:flex; gap:10px; margin-top:8px; }
+  .modal-actions button{
+    flex:1; border:none; border-radius:13px; padding:14px; font-size:15px;
+    font-weight:700; cursor:pointer;
+  }
+  .modal-confirm{ background:var(--moss); color:#fff; }
+  .modal-confirm:disabled{ opacity:0.45; }
+  .field-error{ font-size:11.5px; color:var(--amber); margin-top:5px; display:none; }
+
+  .segmented{ display:flex; gap:6px; }
+  .seg-btn{
+    flex:1; padding:10px; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel); color:var(--moss-dim); font-size:13.5px; font-weight:600; cursor:pointer;
+  }
+  .seg-btn.active{ background:var(--moss); color:#fff; border-color:var(--moss); }
+
+  .logbook-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:14px;
+    padding:14px 16px; margin-bottom:10px;
+  }
+  .lb-row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:7px 0; font-size:13.5px; border-bottom:1px solid var(--line);
+  }
+  .lb-row:last-child{ border-bottom:none; }
+  .lb-row span{ color:var(--moss-dim); }
+  .lb-row b{ font-variant-numeric:tabular-nums; }
+
+  .export-btn{
+    width:100%; padding:14px; border:none; border-radius:14px;
+    background:var(--amber); color:#fff; font-size:15px; font-weight:700; cursor:pointer;
+    margin-bottom:8px;
+  }
+  .export-btn:active{ opacity:0.85; }
+  .export-note{
+    font-size:11.5px; line-height:1.5; color:var(--moss-dim); margin:0 2px 8px;
+  }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <header>
+    <h1>Commute</h1>
+    <div class="sub" id="todayDate">—</div>
+  </header>
+
+  <div id="permBanner"></div>
+
+  <div class="profile-strip" id="profileStrip" style="display:none;">
+    <div class="avatar" id="avatarInitial">?</div>
+    <div class="info">
+      <div class="n" id="profileName">—</div>
+      <div class="d" id="profileDetail">—</div>
+    </div>
+    <button class="edit-btn" id="editProfileBtn">Edit</button>
+  </div>
+
+  <div class="unit-toggle">
+    <button id="btnKm" class="active">Kilometers</button>
+    <button id="btnMi">Miles</button>
+  </div>
+
+  <div class="trip-card idle" id="tripCard">
+    <div class="trip-status-row">
+      <div class="pulse-dot"></div>
+      <div class="trip-status-text" id="tripStatusText">Ready</div>
+    </div>
+    <div class="trip-metric" id="tripMetric">0.00<small id="tripUnit">km</small></div>
+    <div class="trip-sub" id="tripSub">Tap start when you leave</div>
+    <button class="trip-btn start" id="tripBtn">Start Trip</button>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-tile">
+      <div class="label">Today</div>
+      <div class="value" id="statToday">0.0</div>
+    </div>
+    <div class="stat-tile">
+      <div class="label">This week</div>
+      <div class="value" id="statWeek">0.0</div>
+    </div>
+    <div class="stat-tile">
+      <div class="label">Trips</div>
+      <div class="value" id="statTrips">0</div>
+    </div>
+  </div>
+
+  <div class="section-title">Locations</div>
+  <div class="loc-row">
+    <div class="loc-dot work"></div>
+    <div class="loc-info">
+      <div class="name">Work</div>
+      <div class="coords" id="workCoords">Not set</div>
+    </div>
+    <button class="loc-set-btn" id="setWorkBtn">Set current spot</button>
+  </div>
+  <div class="loc-row">
+    <div class="loc-dot home"></div>
+    <div class="loc-info">
+      <div class="name">Home</div>
+      <div class="coords" id="homeCoords">Not set</div>
+    </div>
+    <button class="loc-set-btn" id="setHomeBtn">Set current spot</button>
+  </div>
+
+  <div class="section-title">History</div>
+  <div id="history"></div>
+
+  <div class="section-title">ATO Logbook</div>
+  <div class="logbook-card" id="logbookCard">
+    <div class="lb-row"><span>Business km</span><b id="lbBusinessKm">0</b></div>
+    <div class="lb-row"><span>Private km</span><b id="lbPrivateKm">0</b></div>
+    <div class="lb-row"><span>Business use</span><b id="lbPercent">0%</b></div>
+    <div class="lb-row"><span>Odometer now</span><b id="lbOdometer">—</b></div>
+  </div>
+  <button class="export-btn" id="exportBtn">Export logbook (.csv)</button>
+  <p class="export-note">Saves a spreadsheet with every trip's date, odometer readings, km, business/private split and reason — the fields the ATO logbook method requires. Tap Export, then choose <b>Save to Files</b> and pick your folder under <b>On My iPhone</b>.</p>
+
+</div>
+
+<div class="modal-overlay" id="sessionModal">
+  <div class="modal">
+    <h2 id="modalTitle">Set up your session</h2>
+    <p class="modal-sub" id="modalSub">These details are saved on this iPhone only and carried into every trip you log.</p>
+    <div class="field">
+      <label for="inpName">Driver name</label>
+      <input id="inpName" type="text" autocomplete="name" placeholder="e.g. Alex">
+    </div>
+    <div class="field">
+      <label for="inpPlate">License plate</label>
+      <input id="inpPlate" type="text" autocomplete="off" autocapitalize="characters" placeholder="e.g. ABC 1234">
+    </div>
+    <div class="field">
+      <label for="inpVehicle">Vehicle (make, model, engine)</label>
+      <input id="inpVehicle" type="text" autocomplete="off" placeholder="e.g. Toyota Corolla 2.0L">
+    </div>
+    <div class="field">
+      <label for="inpWorkName">Work location name</label>
+      <input id="inpWorkName" type="text" autocomplete="off" placeholder="e.g. Downtown Office">
+    </div>
+    <div class="field">
+      <label for="inpMileage">Starting odometer (km)</label>
+      <input id="inpMileage" type="number" inputmode="decimal" min="0" step="0.1" placeholder="e.g. 45210">
+      <div class="field-error" id="mileageError">Enter the current odometer reading.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-confirm" id="confirmSessionBtn">Confirm &amp; Start</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="tripLogModal">
+  <div class="modal">
+    <h2>Log this trip</h2>
+    <p class="modal-sub">Required for a valid ATO logbook entry.</p>
+    <div class="field">
+      <label for="inpPurposeType">Trip type</label>
+      <div class="segmented" id="purposeSegment">
+        <button type="button" class="seg-btn active" data-val="Business">Business</button>
+        <button type="button" class="seg-btn" data-val="Private">Private</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="inpReason">Reason / destination</label>
+      <input id="inpReason" type="text" autocomplete="off" placeholder="e.g. Client meeting, Head office">
+    </div>
+    <div class="field">
+      <label for="inpOdoEnd">Odometer end (current: <span id="odoStartLabel">0</span>)</label>
+      <input id="inpOdoEnd" type="number" inputmode="decimal" step="0.1">
+    </div>
+    <div class="modal-actions">
+      <button class="modal-confirm" id="confirmTripLogBtn">Save Trip</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const KM_PER_MI = 1.60934;
+
+  let settings = { work: null, home: null, unit: 'km' };
+  let trips = [];
+  let profile = { name:'', plate:'', vehicle:'', workName:'', mileage:null };
+  let tracking = {
+    active:false,
+    watchId:null,
+    startTime:null,
+    lastPoint:null,
+    distanceKm:0,
+    points:[]
+  };
+
+  const LS_KEYS = { settings:'commute_settings', trips:'commute_trips', profile:'commute_profile' };
+
+  // ---------- storage (iPhone local storage, via localStorage) ----------
+  function loadData(){
+    try{
+      const s = localStorage.getItem(LS_KEYS.settings);
+      if(s) settings = JSON.parse(s);
+    }catch(e){ console.error('read settings failed', e); }
+    try{
+      const t = localStorage.getItem(LS_KEYS.trips);
+      if(t) trips = JSON.parse(t);
+    }catch(e){ console.error('read trips failed', e); }
+    try{
+      const p = localStorage.getItem(LS_KEYS.profile);
+      if(p) profile = JSON.parse(p);
+    }catch(e){ console.error('read profile failed', e); }
+    render();
+    openSessionModal();
+  }
+  function saveSettings(){
+    try{ localStorage.setItem(LS_KEYS.settings, JSON.stringify(settings)); }
+    catch(e){ console.error('save settings failed', e); }
+  }
+  function saveTrips(){
+    try{ localStorage.setItem(LS_KEYS.trips, JSON.stringify(trips)); }
+    catch(e){ console.error('save trips failed', e); }
+  }
+  function saveProfile(){
+    try{ localStorage.setItem(LS_KEYS.profile, JSON.stringify(profile)); }
+    catch(e){ console.error('save profile failed', e); }
+  }
+
+  // ---------- session profile: confirm at start of every session ----------
+  function hasSavedProfile(){
+    return !!(profile.name || profile.plate || profile.workName || profile.mileage != null);
+  }
+
+  function openSessionModal(){
+    const modal = $('sessionModal');
+    if(hasSavedProfile()){
+      $('modalTitle').textContent = `Welcome back, ${profile.name || 'driver'}`;
+      $('modalSub').textContent = 'Confirm these details are still correct for today\u2019s session, or update anything that changed.';
+    } else {
+      $('modalTitle').textContent = 'Set up your session';
+      $('modalSub').textContent = 'These details are saved on this iPhone only and carried into every trip you log.';
+    }
+    $('inpName').value = profile.name || '';
+    $('inpPlate').value = profile.plate || '';
+    $('inpVehicle').value = profile.vehicle || '';
+    $('inpWorkName').value = profile.workName || '';
+    $('inpMileage').value = profile.mileage != null ? profile.mileage : '';
+    modal.classList.remove('hidden');
+  }
+
+  function closeSessionModal(){
+    $('sessionModal').classList.add('hidden');
+  }
+
+  function confirmSession(){
+    const name = $('inpName').value.trim();
+    const plate = $('inpPlate').value.trim();
+    const vehicle = $('inpVehicle').value.trim();
+    const workName = $('inpWorkName').value.trim();
+    const mileageRaw = $('inpMileage').value.trim();
+
+    if(mileageRaw === '' || isNaN(Number(mileageRaw))){
+      $('mileageError').style.display = 'block';
+      $('inpMileage').focus();
+      return;
+    }
+    $('mileageError').style.display = 'none';
+
+    profile = { name, plate, vehicle, workName, mileage: Number(mileageRaw) };
+    saveProfile();
+    closeSessionModal();
+    renderProfileStrip();
+    renderLogbook();
+  }
+
+  function renderProfileStrip(){
+    const strip = $('profileStrip');
+    if(!hasSavedProfile()){
+      strip.style.display = 'none';
+      return;
+    }
+    strip.style.display = 'flex';
+    $('avatarInitial').textContent = (profile.name || '?').trim().charAt(0).toUpperCase() || '?';
+    $('profileName').textContent = profile.name || 'Driver';
+    const bits = [];
+    if(profile.plate) bits.push(profile.plate);
+    if(profile.workName) bits.push(profile.workName);
+    if(profile.mileage != null) bits.push(`${profile.mileage} km odo`);
+    $('profileDetail').textContent = bits.length ? bits.join(' \u00b7 ') : 'Tap edit to add details';
+  }
+
+  // ---------- geo helpers ----------
+  function haversineKm(a, b){
+    const R = 6371;
+    const dLat = (b.lat - a.lat) * Math.PI/180;
+    const dLng = (b.lng - a.lng) * Math.PI/180;
+    const la1 = a.lat * Math.PI/180;
+    const la2 = b.lat * Math.PI/180;
+    const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+
+  function getCurrentPosition(){
+    return new Promise((resolve, reject)=>{
+      if(!('geolocation' in navigator)){
+        reject(new Error('no-geo'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        pos => resolve(pos),
+        err => reject(err),
+        { enableHighAccuracy:true, timeout:12000, maximumAge:0 }
+      );
+    });
+  }
+
+  // ---------- location setting ----------
+  async function setLocation(kind){
+    const btn = kind === 'work' ? $('setWorkBtn') : $('setHomeBtn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Locating…';
+    btn.disabled = true;
+    try{
+      const pos = await getCurrentPosition();
+      settings[kind] = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      saveSettings();
+      render();
+    }catch(err){
+      showBanner('Couldn\'t get your location. Make sure location access is allowed for this page in Settings, then try again.');
+    }finally{
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+  }
+
+  function showBanner(msg){
+    $('permBanner').innerHTML = `<div class="banner">${msg}</div>`;
+  }
+  function clearBanner(){ $('permBanner').innerHTML = ''; }
+
+  // ---------- trip tracking ----------
+  function startTrip(){
+    if(!('geolocation' in navigator)){
+      showBanner('This browser doesn\'t support location tracking.');
+      return;
+    }
+    tracking.active = true;
+    tracking.startTime = Date.now();
+    tracking.lastPoint = null;
+    tracking.distanceKm = 0;
+    tracking.points = [];
+    tracking.odoStart = profile.mileage != null ? profile.mileage : 0;
+    clearBanner();
+    renderTripCard();
+
+    tracking.watchId = navigator.geolocation.watchPosition(
+      pos => onPosition(pos),
+      err => {
+        showBanner('Location signal lost or denied. Distance may be incomplete — you can still stop and save the trip.');
+      },
+      { enableHighAccuracy:true, maximumAge:2000, timeout:15000 }
+    );
+  }
+
+  function onPosition(pos){
+    const acc = pos.coords.accuracy;
+    // ignore noisy low-accuracy fixes
+    if(acc && acc > 60) return;
+    const p = { lat: pos.coords.latitude, lng: pos.coords.longitude, t: Date.now() };
+    if(tracking.lastPoint){
+      const segKm = haversineKm(tracking.lastPoint, p);
+      // ignore GPS jitter jumps that imply implausible speed (>150 km/h)
+      const dtHr = (p.t - tracking.lastPoint.t) / 3600000;
+      const speed = dtHr > 0 ? segKm / dtHr : 0;
+      if(segKm > 0.005 && speed < 150){
+        tracking.distanceKm += segKm;
+      }
+    }
+    tracking.lastPoint = p;
+    tracking.points.push(p);
+    renderTripCard();
+  }
+
+  let pendingTrip = null;
+
+  function stopTrip(){
+    if(tracking.watchId !== null){
+      navigator.geolocation.clearWatch(tracking.watchId);
+    }
+    const durationMin = Math.max(1, Math.round((Date.now() - tracking.startTime)/60000));
+    const distanceKm = Math.round(tracking.distanceKm * 100) / 100;
+
+    let direction = 'Trip';
+    const last = tracking.lastPoint;
+    if(last && settings.work && settings.home){
+      const dWork = haversineKm(last, settings.work);
+      const dHome = haversineKm(last, settings.home);
+      direction = dWork < dHome ? 'To Work' : 'To Home';
+    } else if(last && settings.work){
+      direction = haversineKm(last, settings.work) < 1 ? 'To Work' : 'Trip';
+    }
+
+    pendingTrip = {
+      startTime: tracking.startTime,
+      durationMin,
+      distanceKm,
+      direction,
+      odoStart: tracking.odoStart != null ? tracking.odoStart : (profile.mileage || 0)
+    };
+
+    tracking = { active:false, watchId:null, startTime:null, lastPoint:null, distanceKm:0, points:[], odoStart:null };
+    render();
+
+    if(distanceKm > 0.03 || direction !== 'Trip'){
+      openTripLogModal();
+    } else {
+      pendingTrip = null;
+    }
+  }
+
+  function openTripLogModal(){
+    if(!pendingTrip) return;
+    $('odoStartLabel').textContent = pendingTrip.odoStart.toFixed(1);
+    $('inpOdoEnd').value = (pendingTrip.odoStart + pendingTrip.distanceKm).toFixed(1);
+    $('inpReason').value = pendingTrip.direction !== 'Trip' ? pendingTrip.direction : '';
+    setPurposeSegment('Business');
+    $('tripLogModal').classList.remove('hidden');
+  }
+
+  function closeTripLogModal(){
+    $('tripLogModal').classList.add('hidden');
+  }
+
+  function setPurposeSegment(val){
+    document.querySelectorAll('#purposeSegment .seg-btn').forEach(b=>{
+      b.classList.toggle('active', b.getAttribute('data-val') === val);
+    });
+  }
+  function getPurposeSegment(){
+    const active = document.querySelector('#purposeSegment .seg-btn.active');
+    return active ? active.getAttribute('data-val') : 'Business';
+  }
+
+  function confirmTripLog(){
+    if(!pendingTrip) return;
+    const odoEndRaw = $('inpOdoEnd').value.trim();
+    let odoEnd = Number(odoEndRaw);
+    if(odoEndRaw === '' || isNaN(odoEnd) || odoEnd < pendingTrip.odoStart){
+      odoEnd = Math.round((pendingTrip.odoStart + pendingTrip.distanceKm) * 10) / 10;
+    }
+    const kmTravelled = Math.round((odoEnd - pendingTrip.odoStart) * 100) / 100;
+    const purpose = getPurposeSegment();
+    const reason = $('inpReason').value.trim();
+
+    trips.unshift({
+      id: Date.now().toString(36),
+      date: new Date(pendingTrip.startTime).toISOString(),
+      direction: pendingTrip.direction,
+      distanceKm: kmTravelled,
+      durationMin: pendingTrip.durationMin,
+      odoStart: pendingTrip.odoStart,
+      odoEnd: odoEnd,
+      purpose,
+      reason
+    });
+    saveTrips();
+
+    profile.mileage = odoEnd;
+    saveProfile();
+
+    pendingTrip = null;
+    closeTripLogModal();
+    render();
+  }
+
+  async function deleteTrip(id){
+    trips = trips.filter(t => t.id !== id);
+    saveTrips();
+    render();
+  }
+
+  // ---------- unit handling ----------
+  function toDisplayDistance(km){
+    return settings.unit === 'mi' ? km / KM_PER_MI : km;
+  }
+  function unitLabel(){ return settings.unit === 'mi' ? 'mi' : 'km'; }
+
+  // ---------- rendering ----------
+  function fmtCoords(loc){
+    if(!loc) return 'Not set';
+    return `${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}`;
+  }
+
+  function renderTripCard(){
+    const card = $('tripCard');
+    const btn = $('tripBtn');
+    if(tracking.active){
+      card.classList.remove('idle');
+      card.classList.add('active');
+      $('tripStatusText').textContent = 'Tracking';
+      const mins = Math.max(0, Math.round((Date.now() - tracking.startTime)/60000));
+      $('tripMetric').innerHTML = `${toDisplayDistance(tracking.distanceKm).toFixed(2)}<small>${unitLabel()}</small>`;
+      $('tripSub').textContent = `${mins} min elapsed`;
+      btn.textContent = 'Stop Trip';
+      btn.className = 'trip-btn stop';
+    } else {
+      card.classList.remove('active');
+      card.classList.add('idle');
+      $('tripStatusText').textContent = 'Ready';
+      $('tripMetric').innerHTML = `0.00<small>${unitLabel()}</small>`;
+      $('tripSub').textContent = 'Tap start when you leave';
+      btn.textContent = 'Start Trip';
+      btn.className = 'trip-btn start';
+    }
+  }
+
+  function startOfWeek(d){
+    const day = d.getDay();
+    const diff = (day === 0 ? -6 : 1) - day; // Monday as start
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + diff);
+    monday.setHours(0,0,0,0);
+    return monday;
+  }
+
+  function renderStats(){
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const weekStart = startOfWeek(new Date());
+
+    let todayKm = 0, weekKm = 0;
+    trips.forEach(t=>{
+      const d = new Date(t.date);
+      if(d >= today) todayKm += t.distanceKm;
+      if(d >= weekStart) weekKm += t.distanceKm;
+    });
+
+    $('statToday').textContent = toDisplayDistance(todayKm).toFixed(1);
+    $('statWeek').textContent = toDisplayDistance(weekKm).toFixed(1);
+    $('statTrips').textContent = trips.length;
+  }
+
+  function renderLocations(){
+    $('workCoords').textContent = fmtCoords(settings.work);
+    $('homeCoords').textContent = fmtCoords(settings.home);
+  }
+
+  function fmtDay(dateStr){
+    const d = new Date(dateStr);
+    const today = new Date(); today.setHours(0,0,0,0);
+    const yest = new Date(today); yest.setDate(yest.getDate()-1);
+    const dd = new Date(d); dd.setHours(0,0,0,0);
+    if(dd.getTime() === today.getTime()) return 'Today';
+    if(dd.getTime() === yest.getTime()) return 'Yesterday';
+    return d.toLocaleDateString(undefined, { weekday:'long', month:'short', day:'numeric' });
+  }
+
+  function fmtTime(dateStr){
+    return new Date(dateStr).toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' });
+  }
+
+  function renderHistory(){
+    const el = $('history');
+    if(trips.length === 0){
+      el.innerHTML = `<div class="empty">No trips logged yet. Start a trip above once you're on the move.</div>`;
+      return;
+    }
+    const groups = {};
+    trips.forEach(t=>{
+      const key = fmtDay(t.date);
+      if(!groups[key]) groups[key] = [];
+      groups[key].push(t);
+    });
+    let html = '';
+    Object.keys(groups).forEach(day=>{
+      html += `<div class="day-group"><div class="day-label">${day}</div>`;
+      groups[day].forEach(t=>{
+        const icon = t.purpose === 'Private' ? '🏠' : (t.direction === 'To Work' ? '💼' : (t.direction === 'To Home' ? '🏠' : '📍'));
+        const label = t.reason ? t.reason : t.direction;
+        const sub = t.purpose ? `${t.purpose} · ${fmtTime(t.date)}` : fmtTime(t.date);
+        html += `
+          <div class="trip-row">
+            <div class="trip-icon">${icon}</div>
+            <div class="trip-row-info">
+              <div class="dir">${label}</div>
+              <div class="time">${sub}</div>
+            </div>
+            <div class="trip-row-dist">
+              <div class="km">${toDisplayDistance(t.distanceKm).toFixed(2)} ${unitLabel()}</div>
+              <div class="min">${t.durationMin} min</div>
+            </div>
+            <button class="del-x" data-id="${t.id}" aria-label="Delete trip">✕</button>
+          </div>`;
+      });
+      html += `</div>`;
+    });
+    el.innerHTML = html;
+    el.querySelectorAll('.del-x').forEach(b=>{
+      b.addEventListener('click', ()=> deleteTrip(b.getAttribute('data-id')));
+    });
+  }
+
+  function renderLogbook(){
+    let bizKm = 0, privKm = 0;
+    trips.forEach(t=>{
+      const p = t.purpose || (t.direction && t.direction !== 'Trip' ? 'Business' : 'Private');
+      if(p === 'Business') bizKm += t.distanceKm; else privKm += t.distanceKm;
+    });
+    const totalKm = bizKm + privKm;
+    const pct = totalKm > 0 ? Math.round((bizKm/totalKm)*1000)/10 : 0;
+    $('lbBusinessKm').textContent = bizKm.toFixed(1) + ' km';
+    $('lbPrivateKm').textContent = privKm.toFixed(1) + ' km';
+    $('lbPercent').textContent = pct + '%';
+    $('lbOdometer').textContent = profile.mileage != null ? profile.mileage.toFixed(1) + ' km' : '—';
+  }
+
+  function csvEscape(v){
+    const s = String(v == null ? '' : v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  }
+
+  async function exportLogbook(){
+    if(trips.length === 0){
+      showBanner('No trips to export yet.');
+      return;
+    }
+    const ordered = [...trips].sort((a,b)=> new Date(a.date) - new Date(b.date));
+    let bizKm = 0, totalKm = 0;
+    ordered.forEach(t=>{ totalKm += t.distanceKm; if((t.purpose||'Business')==='Business') bizKm += t.distanceKm; });
+    const pct = totalKm > 0 ? Math.round((bizKm/totalKm)*1000)/10 : 0;
+    const periodStart = ordered[0].date.slice(0,10);
+    const periodEnd = ordered[ordered.length-1].date.slice(0,10);
+
+    const lines = [];
+    lines.push('ATO Vehicle Logbook');
+    lines.push(`Driver,${csvEscape(profile.name)}`);
+    lines.push(`Vehicle,${csvEscape(profile.vehicle)}`);
+    lines.push(`Registration,${csvEscape(profile.plate)}`);
+    lines.push(`Work location,${csvEscape(profile.workName)}`);
+    lines.push(`Logbook period,${periodStart} to ${periodEnd}`);
+    lines.push(`Total km,${totalKm.toFixed(1)}`);
+    lines.push(`Business km,${bizKm.toFixed(1)}`);
+    lines.push(`Business use percentage,${pct}%`);
+    lines.push('');
+    lines.push('Date,Odometer Start (km),Odometer End (km),Km Travelled,Type,Reason / Destination');
+    ordered.forEach(t=>{
+      const d = new Date(t.date).toLocaleDateString('en-AU');
+      lines.push([
+        csvEscape(d),
+        csvEscape(t.odoStart != null ? t.odoStart.toFixed(1) : ''),
+        csvEscape(t.odoEnd != null ? t.odoEnd.toFixed(1) : ''),
+        csvEscape(t.distanceKm.toFixed(1)),
+        csvEscape(t.purpose || 'Business'),
+        csvEscape(t.reason || t.direction || '')
+      ].join(','));
+    });
+    const csv = lines.join('\n');
+    const filename = `ATO-Logbook-${periodStart}-to-${periodEnd}.csv`;
+    const blob = new Blob([csv], { type:'text/csv' });
+
+    try{
+      const file = new File([blob], filename, { type:'text/csv' });
+      if(navigator.canShare && navigator.canShare({ files:[file] })){
+        await navigator.share({ files:[file], title:'ATO Vehicle Logbook' });
+        return;
+      }
+    }catch(e){ /* fall through to download */ }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    showBanner('Saved to your Downloads. Open the Files app, find it under Downloads, then move it into your chosen folder under On My iPhone.');
+  }
+
+  function render(){
+    $('todayDate').textContent = new Date().toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric' });
+    $('btnKm').classList.toggle('active', settings.unit !== 'mi');
+    $('btnMi').classList.toggle('active', settings.unit === 'mi');
+    renderTripCard();
+    renderStats();
+    renderLocations();
+    renderHistory();
+    renderProfileStrip();
+    renderLogbook();
+  }
+
+  // ---------- events ----------
+  $('tripBtn').addEventListener('click', ()=>{
+    if(tracking.active) stopTrip(); else startTrip();
+  });
+  $('setWorkBtn').addEventListener('click', ()=> setLocation('work'));
+  $('setHomeBtn').addEventListener('click', ()=> setLocation('home'));
+  $('btnKm').addEventListener('click', ()=>{ settings.unit='km'; saveSettings(); render(); });
+  $('btnMi').addEventListener('click', ()=>{ settings.unit='mi'; saveSettings(); render(); });
+  $('confirmSessionBtn').addEventListener('click', confirmSession);
+  $('editProfileBtn').addEventListener('click', openSessionModal);
+  $('confirmTripLogBtn').addEventListener('click', confirmTripLog);
+  $('exportBtn').addEventListener('click', exportLogbook);
+  document.querySelectorAll('#purposeSegment .seg-btn').forEach(b=>{
+    b.addEventListener('click', ()=> setPurposeSegment(b.getAttribute('data-val')));
+  });
+
+  setInterval(()=>{ if(tracking.active) renderTripCard(); }, 1000);
+
+  loadData();
+})();
+</script>
+</body>
+</html>
