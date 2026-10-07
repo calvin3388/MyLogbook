@@ -244,6 +244,14 @@
   }
   .modal-confirm{ background:var(--moss); color:#fff; }
   .modal-confirm:disabled{ opacity:0.45; }
+  .modal-discard{ background:var(--panel); color:var(--moss-dim); border:1px solid var(--line); }
+
+  .feedback-link{
+    display:block; text-align:center;
+    color:var(--moss-dim); font-size:12.5px; font-weight:600;
+    text-decoration:none; padding:14px 0 6px;
+  }
+  .feedback-link:active{ opacity:0.7; }
   .field-error{ font-size:11.5px; color:var(--amber); margin-top:5px; display:none; }
 
   .segmented{ display:flex; gap:6px; }
@@ -274,6 +282,15 @@
   .export-note{
     font-size:11.5px; line-height:1.5; color:var(--moss-dim); margin:0 2px 8px;
   }
+
+  .section-subtitle{
+    font-size:12px; font-weight:700; color:var(--moss-dim); margin:0 0 6px 2px;
+  }
+  .add-loc-btn{
+    width:100%; background:var(--panel); border:1px dashed var(--line);
+    color:var(--moss); font-weight:700; padding:12px; border-radius:14px; margin-bottom:4px;
+  }
+  .loc-row .del-x{ flex-shrink:0; }
 </style>
 </head>
 <body>
@@ -326,14 +343,11 @@
   </div>
 
   <div class="section-title">Locations</div>
-  <div class="loc-row">
-    <div class="loc-dot work"></div>
-    <div class="loc-info">
-      <div class="name">Work</div>
-      <div class="coords" id="workCoords">Not set</div>
-    </div>
-    <button class="loc-set-btn" id="setWorkBtn">Set current spot</button>
-  </div>
+  <div class="section-subtitle">Work</div>
+  <div id="workLocationsList"></div>
+  <button class="loc-set-btn add-loc-btn" id="addWorkBtn">+ Add work location</button>
+
+  <div class="section-subtitle" style="margin-top:14px;">Home</div>
   <div class="loc-row">
     <div class="loc-dot home"></div>
     <div class="loc-info">
@@ -344,6 +358,7 @@
   </div>
 
   <div class="section-title">History</div>
+  <button class="loc-set-btn add-loc-btn" id="addManualTripBtn">+ Add trip manually</button>
   <div id="history"></div>
 
   <div class="section-title">ATO Logbook</div>
@@ -355,6 +370,8 @@
   </div>
   <button class="export-btn" id="exportBtn">Export logbook (.csv)</button>
   <p class="export-note">Saves a spreadsheet with every trip's date, odometer readings, km, business/private split and reason — the fields the ATO logbook method requires. Tap Export, then choose <b>Save to Files</b> and pick your folder under <b>On My iPhone</b>.</p>
+
+  <a class="feedback-link" href="https://github.com/calvin3388/MyLogbook2/discussions/1" target="_blank" rel="noopener">💬 Feedback &amp; Discussion</a>
 
 </div>
 
@@ -409,7 +426,56 @@
       <input id="inpOdoEnd" type="number" inputmode="decimal" step="0.1">
     </div>
     <div class="modal-actions">
+      <button class="modal-discard" id="discardTripLogBtn">Discard</button>
       <button class="modal-confirm" id="confirmTripLogBtn">Save Trip</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="workLocModal">
+  <div class="modal">
+    <h2>Add work location</h2>
+    <p class="modal-sub">Stand at the location, then save it with a name (e.g. "Head Office", "Client Site").</p>
+    <div class="field">
+      <label for="inpWorkLocName">Location name</label>
+      <input id="inpWorkLocName" type="text" autocomplete="off" placeholder="e.g. Head Office">
+    </div>
+    <div class="modal-actions">
+      <button class="modal-confirm" id="confirmWorkLocBtn">Use current spot &amp; save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="manualTripModal">
+  <div class="modal">
+    <h2>Add trip manually</h2>
+    <p class="modal-sub">For a trip you forgot to track live. Enter the odometer readings and details.</p>
+    <div class="field">
+      <label for="inpManualDate">Date</label>
+      <input id="inpManualDate" type="date">
+    </div>
+    <div class="field">
+      <label for="inpManualOdoStart">Odometer start (km)</label>
+      <input id="inpManualOdoStart" type="number" inputmode="decimal" step="0.1">
+    </div>
+    <div class="field">
+      <label for="inpManualOdoEnd">Odometer end (km)</label>
+      <input id="inpManualOdoEnd" type="number" inputmode="decimal" step="0.1">
+    </div>
+    <div class="field">
+      <label>Trip type</label>
+      <div class="segmented" id="manualPurposeSegment">
+        <button type="button" class="seg-btn active" data-val="Business">Business</button>
+        <button type="button" class="seg-btn" data-val="Private">Private</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="inpManualReason">Reason / destination</label>
+      <input id="inpManualReason" type="text" autocomplete="off" placeholder="e.g. Client meeting, Head office">
+    </div>
+    <div class="field-error" id="manualTripError">Enter a valid odometer start and end (end must be greater than start).</div>
+    <div class="modal-actions">
+      <button class="modal-confirm" id="confirmManualTripBtn">Save Trip</button>
     </div>
   </div>
 </div>
@@ -419,7 +485,7 @@
   const $ = (id) => document.getElementById(id);
   const KM_PER_MI = 1.60934;
 
-  let settings = { work: null, home: null, unit: 'km' };
+  let settings = { workLocations: [], home: null, unit: 'km' };
   let trips = [];
   let profile = { name:'', plate:'', vehicle:'', workName:'', mileage:null };
   let tracking = {
@@ -447,9 +513,25 @@
       const p = localStorage.getItem(LS_KEYS.profile);
       if(p) profile = JSON.parse(p);
     }catch(e){ console.error('read profile failed', e); }
+    migrateSettings();
     render();
     openSessionModal();
   }
+  function migrateSettings(){
+    if(!settings.workLocations) settings.workLocations = [];
+    // upgrade legacy single "work" field into the workLocations list
+    if(settings.work && settings.work.lat != null){
+      settings.workLocations.push({
+        id: Date.now().toString(36),
+        name: (profile && profile.workName) ? profile.workName : 'Work',
+        lat: settings.work.lat,
+        lng: settings.work.lng
+      });
+      delete settings.work;
+      saveSettings();
+    }
+  }
+
   function saveSettings(){
     try{ localStorage.setItem(LS_KEYS.settings, JSON.stringify(settings)); }
     catch(e){ console.error('save settings failed', e); }
@@ -553,13 +635,14 @@
 
   // ---------- location setting ----------
   async function setLocation(kind){
-    const btn = kind === 'work' ? $('setWorkBtn') : $('setHomeBtn');
+    // kind is always 'home' now — work locations go through openWorkLocModal/saveWorkLocation
+    const btn = $('setHomeBtn');
     const originalText = btn.textContent;
     btn.textContent = 'Locating…';
     btn.disabled = true;
     try{
       const pos = await getCurrentPosition();
-      settings[kind] = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      settings.home = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       saveSettings();
       render();
     }catch(err){
@@ -568,6 +651,49 @@
       btn.textContent = originalText;
       btn.disabled = false;
     }
+  }
+
+  function openWorkLocModal(){
+    $('inpWorkLocName').value = '';
+    $('workLocModal').classList.remove('hidden');
+  }
+  function closeWorkLocModal(){
+    $('workLocModal').classList.add('hidden');
+  }
+
+  async function saveWorkLocation(){
+    const name = $('inpWorkLocName').value.trim();
+    if(!name){
+      $('inpWorkLocName').focus();
+      return;
+    }
+    const btn = $('confirmWorkLocBtn');
+    const originalText = btn.textContent;
+    btn.textContent = 'Locating…';
+    btn.disabled = true;
+    try{
+      const pos = await getCurrentPosition();
+      settings.workLocations.push({
+        id: Date.now().toString(36),
+        name,
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude
+      });
+      saveSettings();
+      closeWorkLocModal();
+      render();
+    }catch(err){
+      showBanner('Couldn\'t get your location. Make sure location access is allowed for this page in Settings, then try again.');
+    }finally{
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+  }
+
+  function deleteWorkLocation(id){
+    settings.workLocations = settings.workLocations.filter(w => w.id !== id);
+    saveSettings();
+    render();
   }
 
   function showBanner(msg){
@@ -629,12 +755,20 @@
 
     let direction = 'Trip';
     const last = tracking.lastPoint;
-    if(last && settings.work && settings.home){
-      const dWork = haversineKm(last, settings.work);
-      const dHome = haversineKm(last, settings.home);
-      direction = dWork < dHome ? 'To Work' : 'To Home';
-    } else if(last && settings.work){
-      direction = haversineKm(last, settings.work) < 1 ? 'To Work' : 'Trip';
+    if(last){
+      let nearestWork = null, nearestWorkDist = Infinity;
+      settings.workLocations.forEach(w=>{
+        const d = haversineKm(last, w);
+        if(d < nearestWorkDist){ nearestWorkDist = d; nearestWork = w; }
+      });
+      const dHome = settings.home ? haversineKm(last, settings.home) : Infinity;
+      if(nearestWork && nearestWorkDist < dHome){
+        direction = `To ${nearestWork.name}`;
+      } else if(settings.home && dHome <= nearestWorkDist){
+        direction = 'To Home';
+      } else if(nearestWork){
+        direction = `To ${nearestWork.name}`;
+      }
     }
 
     pendingTrip = {
@@ -648,11 +782,10 @@
     tracking = { active:false, watchId:null, startTime:null, lastPoint:null, distanceKm:0, points:[], odoStart:null };
     render();
 
-    if(distanceKm > 0.03 || direction !== 'Trip'){
-      openTripLogModal();
-    } else {
-      pendingTrip = null;
-    }
+    // Always let the person log the trip — even if GPS only caught a little of it
+    // (e.g. Start was tapped partway through the drive). They can correct the
+    // odometer reading by hand in the modal rather than the trip vanishing silently.
+    openTripLogModal();
   }
 
   function openTripLogModal(){
@@ -664,17 +797,24 @@
     $('tripLogModal').classList.remove('hidden');
   }
 
+  function discardPendingTrip(){
+    pendingTrip = null;
+    closeTripLogModal();
+  }
+
   function closeTripLogModal(){
     $('tripLogModal').classList.add('hidden');
   }
 
-  function setPurposeSegment(val){
-    document.querySelectorAll('#purposeSegment .seg-btn').forEach(b=>{
+  function setPurposeSegment(val, containerId){
+    containerId = containerId || 'purposeSegment';
+    document.querySelectorAll('#' + containerId + ' .seg-btn').forEach(b=>{
       b.classList.toggle('active', b.getAttribute('data-val') === val);
     });
   }
-  function getPurposeSegment(){
-    const active = document.querySelector('#purposeSegment .seg-btn.active');
+  function getPurposeSegment(containerId){
+    containerId = containerId || 'purposeSegment';
+    const active = document.querySelector('#' + containerId + ' .seg-btn.active');
     return active ? active.getAttribute('data-val') : 'Business';
   }
 
@@ -713,6 +853,64 @@
   async function deleteTrip(id){
     trips = trips.filter(t => t.id !== id);
     saveTrips();
+    render();
+  }
+
+  // ---------- manual trip entry (for a forgotten session) ----------
+  function openManualTripModal(){
+    const today = new Date();
+    today.setMinutes(today.getMinutes() - today.getTimezoneOffset());
+    $('inpManualDate').value = today.toISOString().slice(0,10);
+    $('inpManualOdoStart').value = profile.mileage != null ? profile.mileage : '';
+    $('inpManualOdoEnd').value = '';
+    $('inpManualReason').value = '';
+    $('manualTripError').style.display = 'none';
+    setPurposeSegment('Business', 'manualPurposeSegment');
+    $('manualTripModal').classList.remove('hidden');
+  }
+  function closeManualTripModal(){
+    $('manualTripModal').classList.add('hidden');
+  }
+
+  function confirmManualTrip(){
+    const dateRaw = $('inpManualDate').value;
+    const odoStart = Number($('inpManualOdoStart').value);
+    const odoEnd = Number($('inpManualOdoEnd').value);
+
+    if(!dateRaw || isNaN(odoStart) || isNaN(odoEnd) || odoEnd <= odoStart){
+      $('manualTripError').style.display = 'block';
+      return;
+    }
+    $('manualTripError').style.display = 'none';
+
+    const purpose = getPurposeSegment('manualPurposeSegment');
+    const reason = $('inpManualReason').value.trim();
+    const kmTravelled = Math.round((odoEnd - odoStart) * 100) / 100;
+
+    // use midday on the chosen date so it sorts correctly without timezone edge-cases
+    const tripDate = new Date(dateRaw + 'T12:00:00');
+
+    trips.unshift({
+      id: Date.now().toString(36),
+      date: tripDate.toISOString(),
+      direction: reason || 'Trip',
+      distanceKm: kmTravelled,
+      durationMin: null,
+      odoStart,
+      odoEnd,
+      purpose,
+      reason,
+      manual: true
+    });
+    saveTrips();
+
+    // only advance the running odometer if this reading is the most recent known one
+    if(profile.mileage == null || odoEnd > profile.mileage){
+      profile.mileage = odoEnd;
+      saveProfile();
+    }
+
+    closeManualTripModal();
     render();
   }
 
@@ -778,8 +976,24 @@
   }
 
   function renderLocations(){
-    $('workCoords').textContent = fmtCoords(settings.work);
     $('homeCoords').textContent = fmtCoords(settings.home);
+    const list = $('workLocationsList');
+    if(!settings.workLocations || settings.workLocations.length === 0){
+      list.innerHTML = `<div class="empty" style="padding:14px 4px;">No work locations yet. Add one below.</div>`;
+      return;
+    }
+    list.innerHTML = settings.workLocations.map(w => `
+      <div class="loc-row">
+        <div class="loc-dot work"></div>
+        <div class="loc-info">
+          <div class="name">${w.name}</div>
+          <div class="coords">${fmtCoords(w)}</div>
+        </div>
+        <button class="del-x" data-wid="${w.id}" aria-label="Remove location">✕</button>
+      </div>`).join('');
+    list.querySelectorAll('.del-x').forEach(b=>{
+      b.addEventListener('click', ()=> deleteWorkLocation(b.getAttribute('data-wid')));
+    });
   }
 
   function fmtDay(dateStr){
@@ -812,9 +1026,11 @@
     Object.keys(groups).forEach(day=>{
       html += `<div class="day-group"><div class="day-label">${day}</div>`;
       groups[day].forEach(t=>{
-        const icon = t.purpose === 'Private' ? '🏠' : (t.direction === 'To Work' ? '💼' : (t.direction === 'To Home' ? '🏠' : '📍'));
+        const icon = t.manual ? '✏️' : (t.purpose === 'Private' ? '🏠' : (t.direction === 'To Home' ? '🏠' : (t.direction && t.direction.indexOf('To ') === 0 ? '💼' : '📍')));
         const label = t.reason ? t.reason : t.direction;
-        const sub = t.purpose ? `${t.purpose} · ${fmtTime(t.date)}` : fmtTime(t.date);
+        const timePart = t.manual ? 'Manual entry' : fmtTime(t.date);
+        const sub = t.purpose ? `${t.purpose} · ${timePart}` : timePart;
+        const minLabel = t.durationMin != null ? `${t.durationMin} min` : '';
         html += `
           <div class="trip-row">
             <div class="trip-icon">${icon}</div>
@@ -824,7 +1040,7 @@
             </div>
             <div class="trip-row-dist">
               <div class="km">${toDisplayDistance(t.distanceKm).toFixed(2)} ${unitLabel()}</div>
-              <div class="min">${t.durationMin} min</div>
+              <div class="min">${minLabel}</div>
             </div>
             <button class="del-x" data-id="${t.id}" aria-label="Delete trip">✕</button>
           </div>`;
@@ -927,16 +1143,23 @@
   $('tripBtn').addEventListener('click', ()=>{
     if(tracking.active) stopTrip(); else startTrip();
   });
-  $('setWorkBtn').addEventListener('click', ()=> setLocation('work'));
+  $('addWorkBtn').addEventListener('click', openWorkLocModal);
+  $('confirmWorkLocBtn').addEventListener('click', saveWorkLocation);
   $('setHomeBtn').addEventListener('click', ()=> setLocation('home'));
   $('btnKm').addEventListener('click', ()=>{ settings.unit='km'; saveSettings(); render(); });
   $('btnMi').addEventListener('click', ()=>{ settings.unit='mi'; saveSettings(); render(); });
   $('confirmSessionBtn').addEventListener('click', confirmSession);
   $('editProfileBtn').addEventListener('click', openSessionModal);
   $('confirmTripLogBtn').addEventListener('click', confirmTripLog);
+  $('discardTripLogBtn').addEventListener('click', discardPendingTrip);
   $('exportBtn').addEventListener('click', exportLogbook);
+  $('addManualTripBtn').addEventListener('click', openManualTripModal);
+  $('confirmManualTripBtn').addEventListener('click', confirmManualTrip);
   document.querySelectorAll('#purposeSegment .seg-btn').forEach(b=>{
     b.addEventListener('click', ()=> setPurposeSegment(b.getAttribute('data-val')));
+  });
+  document.querySelectorAll('#manualPurposeSegment .seg-btn').forEach(b=>{
+    b.addEventListener('click', ()=> setPurposeSegment(b.getAttribute('data-val'), 'manualPurposeSegment'));
   });
 
   setInterval(()=>{ if(tracking.active) renderTripCard(); }, 1000);
